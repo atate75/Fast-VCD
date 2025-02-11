@@ -1,2 +1,2 @@
-# FastVCD
-High Performance Python VCD Parser
+# Fast-VCD
+High-Performance Python VCD Parser
