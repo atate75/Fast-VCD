@@ -117,7 +117,7 @@ public:
 private:
 	std::fstream file_stream;
 	std::unordered_map<std::string, std::string> symbol_table;
-	std::vector<std::string> db;
+	std::vector<std::string_view> db;
 	std::vector<std::unordered_map<std::string_view, std::string>> raw_data;
 	std::vector<std::string> column_names;
 	std::vector<int> time_steps;
@@ -215,14 +215,14 @@ private:
 		for (size_t i = 0; i < raw_data.size(); ++i) {
 			if (i == 0) {
 				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map[name]] = std::move(value);
+					db[i * symbol_table.size() + column_map[name]] = value;
 				}
 			} else {
 				for (size_t j = 0; j < raw_data[0].size(); ++j) {
 					db[i * symbol_table.size() + j] = db[(i - 1) * symbol_table.size() + j];
 				}
 				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map[name]] = std::move(value);
+					db[i * symbol_table.size() + column_map[name]] = value;
 				}
 			}
 		}
