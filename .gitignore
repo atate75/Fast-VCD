@@ -6,6 +6,12 @@
 *.lo
 *.o
 *.obj
+cmake-build-*/
+.vscode/
+.idea/
+.venv/
+*.vcd
+build/
 
 # Precompiled Headers
 *.gch

@@ -1,0 +1,26 @@
+BasedOnStyle: Google
+UseTab: ForContinuationAndIndentation
+IndentWidth: 4
+TabWidth: 4
+ColumnLimit: 120
+NamespaceIndentation: All
+AlignAfterOpenBracket: DontAlign
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+AlignArrayOfStructures: Left
+QualifierAlignment: Left
+
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: false
+  AlignCompound: true
+
+AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: Empty
+
+InsertBraces: true
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
