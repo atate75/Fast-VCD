@@ -11,6 +11,9 @@ add_compile_options(
         -Wno-deprecated-declarations # Allow Deprecated Things
         -g
 )
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    add_compile_definitions(DEBUG)
+endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Release")
     add_compile_options(
