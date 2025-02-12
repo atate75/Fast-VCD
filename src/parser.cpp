@@ -1,26 +1,25 @@
 #ifdef PYBIND
-#include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #endif
 
-#include <vector>
-#include <unordered_map>
-#include <string>
-#include <string_view>
+#include <cassert>
 #include <fstream>
 #include <iostream>
-#include <cassert>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
 #ifdef PYBIND
 namespace py = pybind11;
 #endif
-
 
 constexpr std::string_view INTERNAL_DELIM = ".";
 
 // Generic std::string_view stream since C++23 isn't well supported
 class StringViewStream {
-public:
+   public:
 	explicit StringViewStream(const std::string_view sv) : input_(sv) {}
 	StringViewStream& operator>>(std::string_view& output) {
 		input_.remove_prefix(std::min(input_.find_first_not_of(' '), input_.size()));
@@ -38,7 +37,8 @@ public:
 		}
 		return *this;
 	}
-private:
+
+   private:
 	std::string_view input_;
 };
 
@@ -58,7 +58,7 @@ std::string bin2hex(const std::string_view binary_ascii) {
 	size_t padding = (remainder == 0) ? 0 : (4 - remainder);
 
 	std::string hex;
-	hex.reserve((length + padding) / 4 + 1); // Pre-allocate exact size
+	hex.reserve((length + padding) / 4 + 1);  // Pre-allocate exact size
 
 	int value = 0;
 	int bit_count = 0;
@@ -80,9 +80,8 @@ std::string bin2hex(const std::string_view binary_ascii) {
 	return hex + "\0";
 }
 
-
 class Parser {
-public:
+   public:
 	explicit Parser(const std::string& file) {
 		std::ios_base::sync_with_stdio(false);
 		file_stream.open(file);
@@ -114,7 +113,22 @@ public:
 		return column_names;
 	}
 
-private:
+	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> get_all_cycles(
+		bool include_neg = false) {
+		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> aggregate_result;
+		size_t i = 0;
+		while (i < time_steps.size()) {
+			if (include_neg || i % 2 == 0) {
+				std::string cur_cycle = std::to_string(aggregate_result.size());
+				std::unordered_map<std::string, std::string> cycle_result = fetch_row(i);
+				aggregate_result[cur_cycle] = cycle_result;
+			}
+			i++;
+		}
+		return aggregate_result;
+	}
+
+   private:
 	std::fstream file_stream;
 	std::unordered_map<std::string, std::string> symbol_table;
 	std::vector<char*> db;
@@ -171,7 +185,9 @@ private:
 	}
 
 	void parse_data_line(const std::string_view line) {
-		if (line.size() == 0) return;
+		if (line.size() == 0) {
+			return;
+		}
 		if (line[0] == 'b' or line[0] == 'B') {
 			StringViewStream ss(line);
 			std::string_view data;
@@ -211,7 +227,6 @@ private:
 				column_map[value] = i++;
 				column_names.push_back(value);
 			}
-
 		}
 		for (size_t i = 0; i < raw_data.size(); ++i) {
 			if (i == 0) {
@@ -232,7 +247,6 @@ private:
 	}
 };
 
-
 int main(int argc, char** argv) {
 	if (argc != 2) {
 		std::cerr << "Usage: " << argv[0] << " <file>" << std::endl;
@@ -250,7 +264,10 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def(py::init<const std::string&>(), "Constructor that loads a VCD file.", py::arg("filename"))
 		.def("query_row", &Parser::fetch_row, "Fetch a row by index from the VCD file.", py::arg("row_index"))
 		.def("get_rows", &Parser::get_rows, "Return the names of rows in the VCD file (time steps).")
-		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.");
+		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
+		.def("get_all_cycles", &Parser::get_all_cycles,
+		"Return the aggregate information about all cycles in VCD file, with option to include negative edge",
+		py::arg("include_neg") = false);
 }
 
 #endif
