@@ -7,6 +7,7 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -17,7 +18,7 @@ namespace py = pybind11;
 
 constexpr std::string_view INTERNAL_DELIM = ".";
 
-// Generic std::string_view stream since C++23 isn't well supported
+// Generic std::string_view stream since C++23 isn't well supported.
 class StringViewStream {
    public:
 	explicit StringViewStream(const std::string_view sv) : input_(sv) {}
@@ -30,7 +31,7 @@ class StringViewStream {
 		size_t pos = input_.find(' ');
 		if (pos == std::string_view::npos) {
 			output = input_;
-			input_ = std::string_view{};
+			input_ = {};
 		} else {
 			output = input_.substr(0, pos);
 			input_.remove_prefix(pos + 1);
@@ -42,7 +43,7 @@ class StringViewStream {
 	std::string_view input_;
 };
 
-// Convert binary to hex
+// Convert binary to hex.
 inline std::string bin2hex(const std::string_view binary_ascii) {
 	if (binary_ascii.find('x') != std::string_view::npos) {
 		return "x\0";
@@ -50,34 +51,25 @@ inline std::string bin2hex(const std::string_view binary_ascii) {
 	if (binary_ascii.find('z') != std::string_view::npos) {
 		return "z\0";
 	}
-
 	static constexpr char hex_table[] = "0123456789abcdef";
-
 	size_t length = binary_ascii.size();
 	size_t remainder = length % 4;
 	size_t padding = (remainder == 0) ? 0 : (4 - remainder);
-
 	std::string hex;
-	hex.reserve((length + padding) / 4 + 1);  // Pre-allocate exact size
-
+	hex.reserve((length + padding) / 4);
 	int value = 0;
 	int bit_count = 0;
-
-	// Process input while considering the left padding dynamically
 	for (size_t i = 0; i < length + padding; ++i) {
 		char bit = (i < padding) ? '0' : binary_ascii[i - padding];
-
 		value = (value << 1) | (bit - '0');
-		bit_count++;
-
+		++bit_count;
 		if (bit_count == 4) {
 			hex.push_back(hex_table[value]);
 			value = 0;
 			bit_count = 0;
 		}
 	}
-
-	return hex + "\0";
+	return hex;  // null terminator not needed when storing length.
 }
 
 class Parser {
@@ -87,64 +79,62 @@ class Parser {
 		file_stream.open(file);
 		if (!file_stream.is_open()) {
 			std::cerr << "Could not open file " << file << std::endl;
+			return;
 		}
 		parse_header();
 		parse_data();
+		// Initialize data_block with an empty string at offset 0.
+		data_block.push_back('\0');
 		decompress();
 	}
 
+	// Return a map from column name to string for a given row.
 	std::unordered_map<std::string, std::string> fetch_row(const size_t row) const {
-		if (row >= time_steps.size()) {
-			return {};
-		}
 		std::unordered_map<std::string, std::string> result;
-		for (size_t i = 0; i < column_names.size(); i++) {
-			const char* ptr = db[row * column_names.size() + i];
-			result[column_names[i]] = (ptr) ? std::string(ptr) : std::string("");
+		if (row >= time_steps.size()) {
+			return result;
+		}
+		size_t num_cols = column_names.size();
+		const char* base = data_block.data();
+		for (size_t i = 0; i < num_cols; ++i) {
+			unsigned int off = db[row * num_cols + i];
+			result[column_names[i]] = std::string(base + off);
 		}
 		return result;
 	}
 
-	std::vector<int> get_rows() {
+	std::vector<int> get_rows() const {
 		return time_steps;
 	}
 
-	std::vector<std::string> get_columns() {
+	std::vector<std::string> get_columns() const {
 		return column_names;
 	}
 
-	// Fetch all cycles of pos or include neg too
 	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> get_cycles_pos_neg(
 		bool include_neg = false) {
 		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> aggregate_result;
-		size_t i = 0;
-		while (i < time_steps.size()) {
-			if (include_neg || i % 2 == 0) {
-				std::string cur_cycle = std::to_string(aggregate_result.size());
-				std::unordered_map<std::string, std::string> cycle_result = fetch_row(i);
-				aggregate_result[cur_cycle] = cycle_result;
+		for (size_t i = 0; i < time_steps.size(); ++i) {
+			if (include_neg || (i % 2 == 0)) {
+				std::string cycle_key = std::to_string(aggregate_result.size());
+				aggregate_result[cycle_key] = fetch_row(i);
 			}
-			i++;
 		}
 		return aggregate_result;
 	}
 
-	// get all cycles (not including neg cycle + including neg cycle)
 	std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
 	fetch_all_cycles() {
 		std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
 			aggregate_result;
 		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> pos_result;
 		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> neg_result;
-		size_t i = 0;
-		while (i < time_steps.size()) {
-			std::unordered_map<std::string, std::string> cycle_result = fetch_row(i);
+		for (size_t i = 0; i < time_steps.size(); ++i) {
+			auto row_map = fetch_row(i);
 			if (i % 2 == 0) {
-				size_t pos_cycle_num = i >> 1;
-				pos_result[std::to_string(pos_cycle_num)] = cycle_result;
+				pos_result[std::to_string(i >> 1)] = row_map;
 			}
-			neg_result[std::to_string(i)] = cycle_result;
-			i++;
+			neg_result[std::to_string(i)] = row_map;
 		}
 		aggregate_result["pos_result"] = pos_result;
 		aggregate_result["neg_result"] = neg_result;
@@ -154,26 +144,24 @@ class Parser {
    private:
 	std::fstream file_stream;
 	std::unordered_map<std::string, std::string> symbol_table;
-	std::vector<char*> db;
+	// db now holds offsets into data_block.
+	std::vector<unsigned int> db;
 	std::vector<std::unordered_map<std::string_view, std::string>> raw_data;
 	std::vector<std::string> column_names;
 	std::vector<int> time_steps;
+	// data_block holds concatenated string data.
+	std::vector<char> data_block;
 
-	/// HEADER PARSING STUFF
+	// HEADER PARSING
 	void parse_var(const std::string_view line, const std::string_view path) {
 		StringViewStream ss(line);
-		std::string_view type;
-		std::string_view size;
-		std::string_view symbol;
-		std::string_view name;
-		std::string_view junk;
+		std::string_view type, size, symbol, name, junk;
 		ss >> junk >> type >> size >> symbol >> name >> junk;
 		symbol_table[std::string(symbol)] = std::string(path) + std::string(name);
 	}
 
 	static std::string_view parse_scope_name(const std::string_view line) {
-		std::string_view junk;
-		std::string_view next_scope;
+		std::string_view junk, next_scope;
 		StringViewStream ss(line);
 		ss >> junk >> junk >> next_scope;
 		return next_scope;
@@ -201,28 +189,28 @@ class Parser {
 				break;
 			}
 			if (line.starts_with("$scope")) {
-				const std::string_view next_scope = parse_scope_name(line);
+				std::string_view next_scope = parse_scope_name(line);
 				parse_scope(next_scope);
 			}
 		}
 	}
 
 	void parse_data_line(const std::string_view line) {
-		if (line.size() == 0) {
+		if (line.empty()) {
 			return;
 		}
-		if (line[0] == 'b' or line[0] == 'B') {
+		if (line[0] == 'b' || line[0] == 'B') {
 			StringViewStream ss(line);
-			std::string_view data;
-			std::string_view symbol;
+			std::string_view data, symbol;
 			ss >> data >> symbol;
 			const std::string_view logic_name = symbol_table[symbol.data()];
+			// Overwrite or create the value.
 			raw_data.back()[logic_name] = bin2hex(data.substr(1));
-		} else if (line[0] == 'x' or line[0] == 'z' or line[0] == '0' or line[0] == '1') {
-			char data = line[0];
-			const std::string_view symbol = line.substr(1);
-			const std::string_view logic_name(symbol_table.at(symbol.data()));
-			raw_data.back()[logic_name] += data;
+		} else if (line[0] == 'x' || line[0] == 'z' || line[0] == '0' || line[0] == '1') {
+			char ch = line[0];
+			std::string_view symbol = line.substr(1);
+			const std::string_view logic_name = symbol_table.at(symbol.data());
+			raw_data.back()[logic_name] += ch;
 		} else {
 			std::cout << "Unrecognized data line: " << line << std::endl;
 		}
@@ -240,31 +228,40 @@ class Parser {
 		}
 	}
 
+	// In decompress, we build db and data_block.
 	void decompress() {
-		db.resize(raw_data.size() * symbol_table.size());
+		size_t num_rows = raw_data.size();
+		size_t num_cols = symbol_table.size();
+		db.resize(num_rows * num_cols, 0);  // default offset 0 (empty string)
 
+		// Build column_map and column_names.
 		std::unordered_map<std::string_view, int> column_map;
 		{
-			int i = 0;
+			int idx = 0;
 			for (const auto& [_, value] : symbol_table) {
-				column_map[value] = i++;
+				column_map[value] = idx++;
 				column_names.push_back(value);
 			}
 		}
-		for (size_t i = 0; i < raw_data.size(); ++i) {
-			if (i == 0) {
-				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map.at(name)] = raw_data[i][name].data();
-					assert(db[i * symbol_table.size() + column_map[name]]);
+
+		// For each row:
+		for (size_t i = 0; i < num_rows; ++i) {
+			size_t rowStart = i * num_cols;
+			// For each column, if not updated in this row, copy previous row's offset.
+			if (i > 0) {
+				for (size_t j = 0; j < num_cols; ++j) {
+					db[rowStart + j] = db[(i - 1) * num_cols + j];
 				}
-			} else {
-				for (size_t j = 0; j < raw_data[0].size(); ++j) {
-					db[i * symbol_table.size() + j] = db[(i - 1) * symbol_table.size() + j];
-				}
-				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map.at(name)] = raw_data[i][name].data();
-					assert(db[i * symbol_table.size() + column_map.at(name)]);
-				}
+			}
+			// For each updated column in raw_data[i]:
+			for (const auto& [name, value] : raw_data[i]) {
+				int col = column_map.at(name);
+				// Store new offset.
+				unsigned int offset = static_cast<unsigned int>(data_block.size());
+				db[rowStart + col] = offset;
+				// Append value (with null terminator) to data_block.
+				data_block.insert(data_block.end(), value.begin(), value.end());
+				data_block.push_back('\0');
 			}
 		}
 	}
@@ -276,9 +273,12 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 	std::cout << "Parsing " << argv[1] << std::endl;
-	const Parser parser(argv[1]);
-
-	parser.fetch_row(0);
+	Parser parser(argv[1]);
+	auto row0 = parser.fetch_row(0);
+	for (const auto& [col, str] : row0) {
+		std::cout << col << ": " << str << std::endl;
+	}
+	return 0;
 }
 
 #ifdef PYBIND
@@ -295,5 +295,4 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("fetch_all_cycles", &Parser::fetch_all_cycles,
 			"Return all cycles (pos_result) and (neg_result) information.");
 }
-
 #endif

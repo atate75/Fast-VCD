@@ -6,7 +6,7 @@ if __name__ == "__main__":
 
     # Query a row
     results = parser.fetch_all_cycles()
-    print(len(results["neg_result"]))
+    print(len(results["pos_result"]))
         
         
 
