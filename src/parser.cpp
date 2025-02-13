@@ -43,7 +43,7 @@ class StringViewStream {
 };
 
 // Convert binary to hex
-std::string bin2hex(const std::string_view binary_ascii) {
+inline std::string bin2hex(const std::string_view binary_ascii) {
 	if (binary_ascii.find('x') != std::string_view::npos) {
 		return "x\0";
 	}
@@ -113,7 +113,8 @@ class Parser {
 		return column_names;
 	}
 
-	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> get_all_cycles(
+	// Fetch all cycles of pos or include neg too
+	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> get_cycles_pos_neg(
 		bool include_neg = false) {
 		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> aggregate_result;
 		size_t i = 0;
@@ -125,6 +126,28 @@ class Parser {
 			}
 			i++;
 		}
+		return aggregate_result;
+	}
+
+	// get all cycles (not including neg cycle + including neg cycle)
+	std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
+	fetch_all_cycles() {
+		std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
+			aggregate_result;
+		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> pos_result;
+		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> neg_result;
+		size_t i = 0;
+		while (i < time_steps.size()) {
+			std::unordered_map<std::string, std::string> cycle_result = fetch_row(i);
+			if (i % 2 == 0) {
+				size_t pos_cycle_num = i >> 1;
+				pos_result[std::to_string(pos_cycle_num)] = cycle_result;
+			}
+			neg_result[std::to_string(i)] = cycle_result;
+			i++;
+		}
+		aggregate_result["pos_result"] = pos_result;
+		aggregate_result["neg_result"] = neg_result;
 		return aggregate_result;
 	}
 
@@ -250,6 +273,7 @@ class Parser {
 int main(int argc, char** argv) {
 	if (argc != 2) {
 		std::cerr << "Usage: " << argv[0] << " <file>" << std::endl;
+		return -1;
 	}
 	std::cout << "Parsing " << argv[1] << std::endl;
 	const Parser parser(argv[1]);
@@ -265,9 +289,11 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("query_row", &Parser::fetch_row, "Fetch a row by index from the VCD file.", py::arg("row_index"))
 		.def("get_rows", &Parser::get_rows, "Return the names of rows in the VCD file (time steps).")
 		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
-		.def("get_all_cycles", &Parser::get_all_cycles,
-		"Return the aggregate information about all cycles in VCD file, with option to include negative edge",
-		py::arg("include_neg") = false);
+		.def("get_cycles_pos_neg", &Parser::get_cycles_pos_neg,
+			"Return the aggregate information about all cycles in VCD file, with option to include negative edge.",
+			py::arg("include_neg") = false)
+		.def("fetch_all_cycles", &Parser::fetch_all_cycles,
+			"Return all cycles (pos_result) and (neg_result) information.");
 }
 
 #endif
