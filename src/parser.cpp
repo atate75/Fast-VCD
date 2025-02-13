@@ -111,34 +111,14 @@ class Parser {
 		return column_names;
 	}
 
-	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> get_cycles_pos_neg(
-		bool include_neg = false) {
-		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> aggregate_result;
-		for (size_t i = 0; i < time_steps.size(); ++i) {
-			if (include_neg || (i % 2 == 0)) {
-				std::string cycle_key = std::to_string(aggregate_result.size());
-				aggregate_result[cycle_key] = fetch_row(i);
-			}
-		}
-		return aggregate_result;
+	// Get the total number of positive cycles
+	unsigned int get_pos_cycle_numbers() const {
+		return time_steps.size() >> 1;
 	}
 
-	std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
-	fetch_all_cycles() {
-		std::unordered_map<std::string, std::unordered_map<std::string, std::unordered_map<std::string, std::string>>>
-			aggregate_result;
-		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> pos_result;
-		std::unordered_map<std::string, std::unordered_map<std::string, std::string>> neg_result;
-		for (size_t i = 0; i < time_steps.size(); ++i) {
-			auto row_map = fetch_row(i);
-			if (i % 2 == 0) {
-				pos_result[std::to_string(i >> 1)] = row_map;
-			}
-			neg_result[std::to_string(i)] = row_map;
-		}
-		aggregate_result["pos_result"] = pos_result;
-		aggregate_result["neg_result"] = neg_result;
-		return aggregate_result;
+	// Get the total number of cycles in cluding neg edge
+	unsigned int get_neg_cycle_numbers() const {
+		return time_steps.size();
 	}
 
    private:
@@ -289,10 +269,8 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("query_row", &Parser::fetch_row, "Fetch a row by index from the VCD file.", py::arg("row_index"))
 		.def("get_rows", &Parser::get_rows, "Return the names of rows in the VCD file (time steps).")
 		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
-		.def("get_cycles_pos_neg", &Parser::get_cycles_pos_neg,
-			"Return the aggregate information about all cycles in VCD file, with option to include negative edge.",
-			py::arg("include_neg") = false)
-		.def("fetch_all_cycles", &Parser::fetch_all_cycles,
-			"Return all cycles (pos_result) and (neg_result) information.");
+		.def("get_pos_cycle_numbers", &Parser::get_pos_cycle_numbers, "Return the number of positive cycles.")
+		.def("get_neg_cycle_numbers", &Parser::get_neg_cycle_numbers,
+			"Return the total number of cycles including neg edge.");
 }
 #endif
