@@ -111,13 +111,13 @@ class Parser {
 		return column_names;
 	}
 
-	// Get the total number of positive cycles
-	unsigned int get_pos_cycle_numbers() const {
+	// Get the total number of positive clocks
+	unsigned int get_pos_clock_numbers() const {
 		return time_steps.size() >> 1;
 	}
 
-	// Get the total number of cycles in cluding neg edge
-	unsigned int get_neg_cycle_numbers() const {
+	// Get the total number of clocks in cluding neg edge
+	unsigned int get_neg_clock_numbers() const {
 		return time_steps.size();
 	}
 
@@ -137,7 +137,8 @@ class Parser {
 		StringViewStream ss(line);
 		std::string_view type, size, symbol, name, junk;
 		ss >> junk >> type >> size >> symbol >> name >> junk;
-		symbol_table[std::string(symbol)] = std::string(path) + std::string(name);
+		// Variable also needs a delimiter
+		symbol_table[std::string(symbol)] = std::string(path) + std::string(INTERNAL_DELIM) + std::string(name);
 	}
 
 	static std::string_view parse_scope_name(const std::string_view line) {
@@ -198,12 +199,31 @@ class Parser {
 
 	void parse_data() {
 		std::string line;
+		int multipler = 1;
+		bool fake_clock = false;
 		while (std::getline(file_stream, line)) {
 			if (line.starts_with("#")) {
-				time_steps.push_back(std::stoi(line.substr(1)));
-				raw_data.emplace_back();
+				int t = std::stoi(line.substr(1));
+				// Ignore the #0
+				if (t != 0) {
+					// First non-zero, set the clock time
+					if (time_steps.empty()) {
+						multipler = t;
+					}
+					if (t % multipler == 0) {
+						fake_clock = false;
+						time_steps.push_back(t);
+						raw_data.emplace_back();
+					} else {
+						// if t can't be wholy divided by multiplier, then it's a fake clock
+						fake_clock = true;
+					}
+				}
 			} else {
-				parse_data_line(line);
+				// Only parse data line when time_steps is not empty (after #0) and not a fake clock
+				if (!time_steps.empty() && !fake_clock) {
+					parse_data_line(line);
+				}
 			}
 		}
 	}
@@ -269,8 +289,8 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("query_row", &Parser::fetch_row, "Fetch a row by index from the VCD file.", py::arg("row_index"))
 		.def("get_rows", &Parser::get_rows, "Return the names of rows in the VCD file (time steps).")
 		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
-		.def("get_pos_cycle_numbers", &Parser::get_pos_cycle_numbers, "Return the number of positive cycles.")
-		.def("get_neg_cycle_numbers", &Parser::get_neg_cycle_numbers,
-			"Return the total number of cycles including neg edge.");
+		.def("get_pos_clock_numbers", &Parser::get_pos_clock_numbers, "Return the number of positive clocks.")
+		.def("get_neg_clock_numbers", &Parser::get_neg_clock_numbers,
+			"Return the total number of clocks including neg edge.");
 }
 #endif
