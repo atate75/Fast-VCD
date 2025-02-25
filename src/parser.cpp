@@ -4,6 +4,7 @@
 #include <pybind11/stl.h>
 #endif
 
+#include <algorithm>
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -21,6 +22,7 @@ constexpr std::string_view INTERNAL_DELIM = ".";
 class StringViewStream {
    public:
 	explicit StringViewStream(const std::string_view sv) : input_(sv) {}
+
 	StringViewStream& operator>>(std::string_view& output) {
 		input_.remove_prefix(std::min(input_.find_first_not_of(' '), input_.size()));
 		if (input_.empty()) {
@@ -90,18 +92,33 @@ class Parser {
 		}
 		parse_header();
 		parse_data();
-		decompress();
+		make_metadata();
 	}
 
-	std::unordered_map<std::string, std::string> fetch_row(const size_t row) const {
+	std::unordered_map<std::string, std::string> fetch_row(const size_t row) {
 		if (row >= time_steps.size()) {
 			return {};
 		}
+
+		int time_stamp = time_steps[row];
 		std::unordered_map<std::string, std::string> result;
-		for (size_t i = 0; i < column_names.size(); i++) {
-			const char* ptr = db[row * column_names.size() + i];
-			result[column_names[i]] = (ptr) ? std::string(ptr) : std::string("");
+
+		Elem fake{time_stamp, ""};
+		for (std::string_view column : column_names) {
+			const auto& wire_data = raw_data[column];
+			if (!wire_data.empty()) {
+				auto it = std::upper_bound(wire_data.begin(), wire_data.end(), time_stamp,
+					[](const int a, const Elem& b) { return a < b.time_stamp; });
+				if (it != wire_data.begin()) {
+					--it;
+				}
+
+				result[std::string(column)] = it->name;
+			} else {
+				result[std::string(column)] = "";
+			}
 		}
+
 		return result;
 	}
 
@@ -132,7 +149,16 @@ class Parser {
 	std::fstream file_stream;
 	std::unordered_map<std::string, std::string> symbol_table;
 	std::vector<char*> db;
-	std::vector<std::unordered_map<std::string_view, std::string>> raw_data;
+
+	struct Elem {
+		int time_stamp;
+		std::string name;
+		bool operator<(const Elem& elem) const {
+			return time_stamp < elem.time_stamp;
+		}
+	};
+
+	std::unordered_map<std::string_view, std::vector<Elem>> raw_data;
 	std::vector<std::string> column_names;
 	std::vector<int> time_steps;
 
@@ -184,7 +210,7 @@ class Parser {
 		}
 	}
 
-	void parse_data_line(const std::string_view line) {
+	void parse_data_line(const int time_stamp, const std::string_view line) {
 		if (line.size() == 0) {
 			return;
 		}
@@ -194,12 +220,12 @@ class Parser {
 			std::string_view symbol;
 			ss >> data >> symbol;
 			const std::string_view logic_name = symbol_table[symbol.data()];
-			raw_data.back()[logic_name] = bin2hex(data.substr(1));
+			raw_data[logic_name].push_back({time_stamp, bin2hex(data.substr(1))});
 		} else if (line[0] == 'x' or line[0] == 'z' or line[0] == '0' or line[0] == '1') {
 			char data = line[0];
 			const std::string_view symbol = line.substr(1);
 			const std::string_view logic_name(symbol_table.at(symbol.data()));
-			raw_data.back()[logic_name] += data;
+			raw_data[logic_name].push_back({time_stamp, std::string(1, data)});
 		} else {
 			std::cout << "Unrecognized data line: " << line << std::endl;
 		}
@@ -210,39 +236,21 @@ class Parser {
 		while (std::getline(file_stream, line)) {
 			if (line.starts_with("#")) {
 				time_steps.push_back(std::stoi(line.substr(1)));
-				raw_data.emplace_back();
 			} else {
-				parse_data_line(line);
+				parse_data_line(time_steps.back(), line);
 			}
 		}
 	}
 
-	void decompress() {
+	void make_metadata() {
 		db.resize(raw_data.size() * symbol_table.size());
 
 		std::unordered_map<std::string_view, int> column_map;
-		{
-			int i = 0;
-			for (const auto& [_, value] : symbol_table) {
-				column_map[value] = i++;
-				column_names.push_back(value);
-			}
-		}
-		for (size_t i = 0; i < raw_data.size(); ++i) {
-			if (i == 0) {
-				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map.at(name)] = raw_data[i][name].data();
-					assert(db[i * symbol_table.size() + column_map[name]]);
-				}
-			} else {
-				for (size_t j = 0; j < raw_data[0].size(); ++j) {
-					db[i * symbol_table.size() + j] = db[(i - 1) * symbol_table.size() + j];
-				}
-				for (auto& [name, value] : raw_data[i]) {
-					db[i * symbol_table.size() + column_map.at(name)] = raw_data[i][name].data();
-					assert(db[i * symbol_table.size() + column_map.at(name)]);
-				}
-			}
+
+		int i = 0;
+		for (const auto& [_, value] : symbol_table) {
+			column_map[value] = i++;
+			column_names.push_back(value);
 		}
 	}
 };
@@ -252,9 +260,9 @@ int main(int argc, char** argv) {
 		std::cerr << "Usage: " << argv[0] << " <file>" << std::endl;
 	}
 	std::cout << "Parsing " << argv[1] << std::endl;
-	const Parser parser(argv[1]);
+	Parser parser(argv[1]);
 
-	parser.fetch_row(0);
+	auto data = parser.fetch_row(0);
 }
 
 #ifdef PYBIND
@@ -266,8 +274,8 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("get_rows", &Parser::get_rows, "Return the names of rows in the VCD file (time steps).")
 		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
 		.def("get_all_cycles", &Parser::get_all_cycles,
-		"Return the aggregate information about all cycles in VCD file, with option to include negative edge",
-		py::arg("include_neg") = false);
+			"Return the aggregate information about all cycles in VCD file, with option to include negative edge",
+			py::arg("include_neg") = false);
 }
 
 #endif
