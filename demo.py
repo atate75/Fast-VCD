@@ -5,8 +5,8 @@ if __name__ == "__main__":
     parser = vcd_parser.VCDParser("p3_cpu.vcd")
 
     # Query a row
-    results = parser.fetch_all_cycles()
-    print(len(results["pos_result"]))
+    results = parser.query_row(1)
+    print(results)
         
         
 

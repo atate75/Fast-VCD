@@ -186,7 +186,14 @@ class Parser {
 			ss >> data >> symbol;
 			const std::string_view logic_name = symbol_table[symbol.data()];
 			// Overwrite or create the value.
-			raw_data.back()[logic_name] = bin2hex(data.substr(1));
+			// If the register is a *_oht or contains "mask" then we want to use binary encoding
+			// Instead of the compressed HEX.
+			if(logic_name.ends_with("_oht") || logic_name.find("mask") != std::string::npos) {
+				raw_data.back()[logic_name] = data.substr(1);
+			} else {
+				raw_data.back()[logic_name] = bin2hex(data.substr(1));
+			}
+			
 		} else if (line[0] == 'x' || line[0] == 'z' || line[0] == '0' || line[0] == '1') {
 			char ch = line[0];
 			std::string_view symbol = line.substr(1);
