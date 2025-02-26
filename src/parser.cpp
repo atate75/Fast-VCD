@@ -113,12 +113,22 @@ class Parser {
 
 	// Get the total number of positive clocks
 	unsigned int get_pos_clock_numbers() const {
-		return time_steps.size() >> 1;
+		// Starts with 0
+		if (first_clk_value == '0') {
+			return time_steps.size() >> 1;
+		}
+		// Starts with 1
+		return (time_steps.size() + 1) >> 1;
 	}
 
 	// Get the total number of clocks in cluding neg edge
 	unsigned int get_neg_clock_numbers() const {
 		return time_steps.size();
+	}
+
+	// Get the first clock value
+	char get_first_clk_value() const {
+		return first_clk_value;
 	}
 
    private:
@@ -131,6 +141,8 @@ class Parser {
 	std::vector<int> time_steps;
 	// data_block holds concatenated string data.
 	std::vector<char> data_block;
+
+	char first_clk_value = '\0';
 
 	// HEADER PARSING
 	void parse_var(const std::string_view line, const std::string_view path) {
@@ -184,20 +196,27 @@ class Parser {
 			StringViewStream ss(line);
 			std::string_view data, symbol;
 			ss >> data >> symbol;
+
 			const std::string_view logic_name = symbol_table[symbol.data()];
+
 			// Overwrite or create the value.
-			// If the register is a *_oht or contains "mask" then we want to use binary encoding
-			// Instead of the compressed HEX.
-			if(logic_name.ends_with("_oht") || logic_name.find("mask") != std::string::npos) {
+			// If the register is a *_oht or contains "mask", or free_list_t/ready_list_t then we want to use binary
+			// encoding Instead of the compressed HEX.
+			if (logic_name.ends_with("_oht") || logic_name.find("mask") != std::string::npos) {
 				raw_data.back()[logic_name] = data.substr(1);
 			} else {
 				raw_data.back()[logic_name] = bin2hex(data.substr(1));
 			}
-			
+
 		} else if (line[0] == 'x' || line[0] == 'z' || line[0] == '0' || line[0] == '1') {
 			char ch = line[0];
 			std::string_view symbol = line.substr(1);
 			const std::string_view logic_name = symbol_table.at(symbol.data());
+			// Check if it's clock
+			// If the first_clk_value is not set, set it
+			if (first_clk_value == '\0' && logic_name.ends_with("clock")) {
+				first_clk_value = ch;
+			}
 			raw_data.back()[logic_name] += ch;
 		} else {
 			std::cout << "Unrecognized data line: " << line << std::endl;
@@ -298,6 +317,7 @@ PYBIND11_MODULE(vcd_parser, m) {
 		.def("get_columns", &Parser::get_columns, "Return the column names in the VCD file.")
 		.def("get_pos_clock_numbers", &Parser::get_pos_clock_numbers, "Return the number of positive clocks.")
 		.def("get_neg_clock_numbers", &Parser::get_neg_clock_numbers,
-			"Return the total number of clocks including neg edge.");
+			"Return the total number of clocks including neg edge.")
+		.def("get_first_clk_value", &Parser::get_first_clk_value, "Return the first clock's value.");
 }
 #endif
