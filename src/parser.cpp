@@ -200,9 +200,30 @@ class Parser {
 			const std::string_view logic_name = symbol_table[symbol.data()];
 
 			// Overwrite or create the value.
-			// If the register is a *_oht or contains "mask", or free_list_t/ready_list_t then we want to use binary
-			// encoding Instead of the compressed HEX.
-			if (logic_name.ends_with("_oht") || logic_name.find("mask") != std::string::npos) {
+			// Values that don't change:
+			/*
+				-- end with _oht (One Hot)
+				-- contains mask (mask set)
+				-- branch_to_squash
+				-- free_list_brat's current state
+				-- free_list_brat's checkpooint data
+			*/
+			bool display_binary =
+				logic_name.ends_with("_oht") || logic_name.ends_with("write_en") || logic_name.ends_with("branch_id") ||
+				logic_name.find("mask") != std::string::npos ||
+				logic_name.find("branch_to_squash") != std::string::npos ||
+				logic_name.ends_with("FREE_LIST_BRAT_WORKER.current_state") ||
+				logic_name.find("FREE_LIST_BRAT_WORKER.checkpoint_data") != std::string::npos ||
+				logic_name.ends_with("global_history") ||
+				logic_name.find("GBHR_BRAT_WORKER.checkpoint_data") != std::string::npos ||
+				logic_name.ends_with("referenced") || logic_name.ends_with("evict_en") ||
+				logic_name.find("bank_read_request_granted") != std::string::npos ||
+				logic_name.ends_with(".bank_number") || logic_name.ends_with(".offset") ||
+				logic_name.ends_with(".set_index") || logic_name.ends_with(".tag") ||
+				logic_name.ends_with("read_request_valid") || logic_name.ends_with("write_request_valid") ||
+				logic_name.ends_with("read_data_valid") || logic_name.ends_with("_granted") ||
+				logic_name.find("_gnt") != std::string::npos || logic_name.ends_with("internal_valid");
+			if (display_binary) {
 				raw_data.back()[logic_name] = data.substr(1);
 			} else {
 				raw_data.back()[logic_name] = bin2hex(data.substr(1));
@@ -230,10 +251,9 @@ class Parser {
 		while (std::getline(file_stream, line)) {
 			if (line.starts_with("#")) {
 				int t = std::stoi(line.substr(1));
-				// Ignore the #0
 				if (t != 0) {
 					// First non-zero, set the clock time
-					if (time_steps.empty()) {
+					if (multipler == -1) {
 						multipler = t;
 					}
 					if (t % multipler == 0) {
@@ -244,10 +264,14 @@ class Parser {
 						// if t can't be wholy divided by multiplier, then it's a fake clock
 						fake_clock = true;
 					}
+				} else {
+					// zero
+					time_steps.push_back(t);
+					raw_data.emplace_back();
 				}
 			} else {
-				// Only parse data line when time_steps is not empty (after #0) and not a fake clock
-				if (!time_steps.empty() && !fake_clock) {
+				// Only parse data line when time_steps is not a fake clock
+				if (!fake_clock) {
 					parse_data_line(line);
 				}
 			}
